@@ -116,7 +116,7 @@ func (f Font) Widths() []float64 {
 	x := f.V.Key("Widths")
 	var out []float64
 	for i := 0; i < x.Len(); i++ {
-		out = append(out, int(x.Index(i).float64()))
+		out = append(out, x.Index(i).Float64())
 	}
 	return out
 }
@@ -404,7 +404,7 @@ type gstate struct {
 // Content returns the page's content.
 func (p Page) Content() Content {
 	strm := p.V.Key("Contents")
-	var enc TextEncoder = &nopEncoder{}
+	var enc TextEncoding = &nopEncoder{}
 
 	var g = gstate{
 		Th:  1,
