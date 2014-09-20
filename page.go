@@ -500,9 +500,12 @@ func (p Page) contentForStream(strm Value) Content {
 			gstack = append(gstack, g)
 
 		case "Q": // restore graphics state
-			n := len(gstack) - 1
-			g = gstack[n]
-			gstack = gstack[:n]
+			// gstack should not be empty...but sometimes it is
+			if len(gstack) > 0 {
+				n := len(gstack) - 1
+				g = gstack[n]
+				gstack = gstack[:n]
+			}
 
 		case "BT": // begin text (reset text matrix and line matrix)
 			g.Tm = ident
