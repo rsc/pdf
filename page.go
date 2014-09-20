@@ -403,7 +403,23 @@ type gstate struct {
 
 // Content returns the page's content.
 func (p Page) Content() Content {
-	strm := p.V.Key("Contents")
+	switch v := p.V.Key("Contents"); v.Kind() {
+	case Stream:
+		return p.contentForStream(v)
+	case Array:
+		var c Content
+		for i := 0; i < v.Len(); i++ {
+			cfs := p.contentForStream(v.Index(i))
+			c.Text = append(c.Text, cfs.Text...)
+			c.Rect = append(c.Rect, cfs.Rect...)
+		}
+		return c
+	default:
+		panic("bad content kind")
+	}
+}
+
+func (p Page) contentForStream(strm Value) Content {
 	var enc TextEncoding = &nopEncoder{}
 
 	var g = gstate{
