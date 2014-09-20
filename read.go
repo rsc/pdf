@@ -67,6 +67,7 @@ import (
 	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rc4"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -128,7 +129,7 @@ func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
 	}
 	buf = bytes.TrimRight(buf, "\r\n\t ")
 	if !bytes.HasSuffix(buf, []byte("%%EOF")) {
-		return nil, fmt.Errorf("not a PDF file: missing %%%%EOF")
+		return nil, errors.New("not a PDF file: missing %%EOF")
 	}
 	i := findLastLine(buf, "startxref")
 	if i < 0 {
