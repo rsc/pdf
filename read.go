@@ -124,13 +124,11 @@ func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
 	const endChunk = 100
 	buf = make([]byte, endChunk)
 	f.ReadAt(buf, end-endChunk)
-	for len(buf) > 0 && buf[len(buf)-1] == '\n' || buf[len(buf)-1] == '\r' {
-		buf = buf[:len(buf)-1]
-	}
-	buf = bytes.TrimRight(buf, "\r\n\t ")
-	if !bytes.HasSuffix(buf, []byte("%%EOF")) {
+	eof := bytes.LastIndex(buf, []byte("%%EOF"))
+	if eof == -1 {
 		return nil, errors.New("not a PDF file: missing %%EOF")
 	}
+	buf = buf[:eof]
 	i := findLastLine(buf, "startxref")
 	if i < 0 {
 		return nil, fmt.Errorf("malformed PDF file: missing final startxref")
