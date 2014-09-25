@@ -114,6 +114,14 @@ func Open(file string) (*Reader, error) {
 
 // NewReader opens a file for reading, using the data in f with the given total size.
 func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
+	return NewReaderEncrypted(f, size, nil)
+}
+
+// NewReaderEncrypted opens a file for reading, using the data in f with the given total size.
+// If the PDF is encrypted, NewReaderEncrypted calls pw repeatedly to obtain passwords
+// to try. If pw returns the empty string, NewReaderEncrypted stops trying to decrypt
+// the file and returns an error.
+func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, error) {
 	buf := make([]byte, 10)
 	f.ReadAt(buf, 0)
 	if !bytes.HasPrefix(buf, []byte("%PDF-1.")) || buf[7] < '0' || buf[7] > '7' || buf[8] != '\r' && buf[8] != '\n' {
@@ -156,12 +164,26 @@ func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
 	r.xref = xref
 	r.trailer = trailer
 	r.trailerptr = trailerptr
-	if trailer["Encrypt"] != nil {
-		if err := r.initEncrypt(""); err != nil {
-			return nil, err
+	if trailer["Encrypt"] == nil {
+		return r, nil
+	}
+	err = r.initEncrypt("")
+	if err == nil {
+		return r, nil
+	}
+	if pw == nil || err != ErrInvalidPassword {
+		return nil, err
+	}
+	for {
+		next := pw()
+		if next == "" {
+			break
+		}
+		if r.initEncrypt(next) == nil {
+			return r, nil
 		}
 	}
-	return r, nil
+	return nil, err
 }
 
 // Trailer returns the file's Trailer value.
@@ -954,7 +976,7 @@ func (r *Reader) initEncrypt(password string) error {
 	}
 
 	if !bytes.HasPrefix([]byte(U), u) {
-		return fmt.Errorf("encrypted PDF: invalid password")
+		return ErrInvalidPassword
 	}
 
 	r.key = key
@@ -962,6 +984,8 @@ func (r *Reader) initEncrypt(password string) error {
 
 	return nil
 }
+
+var ErrInvalidPassword = fmt.Errorf("encrypted PDF: invalid password")
 
 func okayV4(encrypt dict) bool {
 	cf, ok := encrypt["CF"].(dict)
