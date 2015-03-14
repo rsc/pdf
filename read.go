@@ -804,7 +804,12 @@ func (v Value) Reader() io.ReadCloser {
 		return &errorReadCloser{fmt.Errorf("stream not present")}
 	}
 	var rd io.Reader
-	rd = io.NewSectionReader(v.r.f, x.offset, v.Key("Length").Int64())
+	l := v.Key("Length").Int64()
+	rd = io.NewSectionReader(v.r.f, x.offset, l)
+	if l == 0 {
+		// if Length is zero, skip filter processing
+		return ioutil.NopCloser(rd)
+	}
 	if v.r.key != nil {
 		rd = decryptStream(v.r.key, v.r.useAES, x.ptr, rd)
 	}
