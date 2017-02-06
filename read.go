@@ -79,6 +79,7 @@ import (
 type Reader struct {
 	f          io.ReaderAt
 	end        int64
+	startxref  int64
 	xref       []xref
 	trailer    dict
 	trailerptr objptr
@@ -161,6 +162,7 @@ func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, e
 	if err != nil {
 		return nil, err
 	}
+	r.startxref = startxref
 	r.xref = xref
 	r.trailer = trailer
 	r.trailerptr = trailerptr
