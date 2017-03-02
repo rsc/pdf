@@ -696,7 +696,7 @@ func (v Value) Index(i int) Value {
 }
 
 // Len returns the length of the array v.
-// If v.Kind() != Array, Len returns a null Value.
+// If v.Kind() != Array, Len returns 0.
 func (v Value) Len() int {
 	x, ok := v.data.(array)
 	if !ok {
