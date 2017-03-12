@@ -1,3 +1,5 @@
-go get rsc.io/pdf
+# Purpose of the fork
 
-http://godoc.org/rsc.io/pdf
+This fork of rsc.io/pdf extends the package API with:
+
+  - Implement the method GetPlainText() from object Page. Use to get plain text content (without format)
