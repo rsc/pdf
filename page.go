@@ -5,6 +5,7 @@
 package pdf
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 )
@@ -399,6 +400,61 @@ type gstate struct {
 	Tlm   matrix
 	Trm   matrix
 	CTM   matrix
+}
+
+// GetPlainText returns the page's all text without format.
+//  - seperator parameter used to add chars to split part not at the same paragraphs. "\n" is good way to try.
+func (p Page) GetPlainText(seperator string) string {
+	strm := p.V.Key("Contents")
+
+	var textBuilder bytes.Buffer
+	showText := func(s string) {
+		_, err := textBuilder.WriteString(s)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	Interpret(strm, func(stk *Stack, op string) {
+		n := stk.Len()
+		args := make([]Value, n)
+		for i := n - 1; i >= 0; i-- {
+			args[i] = stk.Pop()
+		}
+
+		switch op {
+		default:
+			return
+		case "T*": // move to start of next line
+			showText(seperator)
+		case "\"": // set spacing, move to next line, and show text
+			if len(args) != 3 {
+				panic("bad \" operator")
+			}
+			fallthrough
+		case "'": // move to next line and show text
+			if len(args) != 1 {
+				panic("bad ' operator")
+			}
+			fallthrough
+		case "Tj": // show text
+			if len(args) != 1 {
+				panic("bad Tj operator")
+			}
+			showText(args[0].RawString())
+			showText(seperator)
+		case "TJ": // show text, allowing individual glyph positioning
+			v := args[0]
+			for i := 0; i < v.Len(); i++ {
+				x := v.Index(i)
+				if x.Kind() == String {
+					showText(x.RawString())
+					showText(seperator)
+				}
+			}
+		}
+	})
+	return textBuilder.String()
 }
 
 // Content returns the page's content.
