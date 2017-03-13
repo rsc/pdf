@@ -8,7 +8,7 @@ This fork of rsc.io/pdf extends the package API with:
 
 I write an example function to read file from PATH and return the content of PDF
 
-    ```go
+    ```
     func readPdf(path string) (string, error) {
       r, err := pdf.Open(path)
       if err != nil {
