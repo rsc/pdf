@@ -44,7 +44,7 @@
 // the package. Equally important, traversal of other PDF data structures can be implemented
 // in other packages as needed.
 //
-package pdf // import "rsc.io/pdf"
+package pdf
 
 // BUG(rsc): The package is incomplete, although it has been used successfully on some
 // large real-world PDF files.
