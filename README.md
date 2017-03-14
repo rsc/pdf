@@ -6,7 +6,10 @@ This fork of rsc.io/pdf extends the package API with:
 
 ## How to read all text from PDF:
 
-I write an example function to read file from PATH and return the content of PDF
+1. Get the library with command `go get -u github.com/ledongthuc/pdf`
+
+
+2. I write an example function to read file from PATH and return the content of PDF
 
 ```golang
 package main
