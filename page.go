@@ -123,6 +123,9 @@ func (f Font) Widths() []float64 {
 
 // Width returns the width of the given code point.
 func (f Font) Width(code int) float64 {
+	if corewidths, ok := Core14Widths[f.BaseFont()]; ok == true {
+		return corewidths[code]
+	}
 	first := f.FirstChar()
 	last := f.LastChar()
 	if code < first || last < code {
