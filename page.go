@@ -647,6 +647,7 @@ func (x TextHorizontal) Less(i, j int) bool {
 type Outline struct {
 	Title string    // title for this element
 	Child []Outline // child elements
+	dest  Value     // destination, which will need to be resolved
 }
 
 // Outline returns the document outline.
@@ -659,8 +660,26 @@ func (r *Reader) Outline() Outline {
 func buildOutline(entry Value) Outline {
 	var x Outline
 	x.Title = entry.Key("Title").Text()
+	x.dest = entry.Key("Dest")
 	for child := entry.Key("First"); child.Kind() == Dict; child = child.Key("Next") {
 		x.Child = append(x.Child, buildOutline(child))
 	}
 	return x
+}
+
+// OutlinePage returns the page of the document corresponding to an outline
+// (aka table of contents) entry.
+func (r *Reader) OutlinePage(o Outline) Page {
+	dests := r.Trailer().Key("Root").Key("Names").Key("Dests")
+	if dests.IsNull() {
+		dests = r.Trailer().Key("Root").Key("Dests") // PDF 1.1
+	}
+
+	if o.dest.Kind() == String {
+		dest := dests.nameTreeLookup(o.dest.String()).Key("D").Index(0)
+		if dest.Key("Type").Name() == "Page" {
+			return Page{dest}
+		}
+	} // non-named destinations are not supported
+	return Page{}
 }
