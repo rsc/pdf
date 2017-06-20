@@ -50,6 +50,44 @@ Search:
 	return Page{}
 }
 
+func (p Page) findAdjacent(direction int) Page {
+	lookingFor := p.V.ptr
+	found := false
+	pages := p.V.Key("Parent")
+FindNext:
+	for pages.Key("Type").Name() == "Pages" {
+		var kid Value
+		kids := pages.Key("Kids")
+		for i := 0; i < kids.Len(); i++ {
+			if direction == 1 {
+				kid = kids.Index(i)
+			} else {
+				kid = kids.Index(kids.Len() - i - 1)
+			}
+			if found {
+				if kid.Key("Type").Name() == "Page" {
+					return Page{kid}
+				} else if kid.Key("Type").Name() == "Pages" {
+					pages = kid
+					continue FindNext
+				}
+			} else if kid.ptr.Equal(lookingFor) {
+				found = true
+			}
+		}
+		lookingFor = pages.ptr
+		found = false
+		pages = pages.Key("Parent")
+	}
+	return Page{}
+}
+
+// Next returns the next page in the document.
+func (p Page) Next() Page { return p.findAdjacent(1) }
+
+// Prev returns the previous page in the document.
+func (p Page) Prev() Page { return p.findAdjacent(-1) }
+
 // NumPage returns the number of pages in the PDF file.
 func (r *Reader) NumPage() int {
 	return int(r.Trailer().Key("Root").Key("Pages").Key("Count").Int64())
