@@ -705,12 +705,13 @@ func buildOutline(entry Value) Outline {
 	return x
 }
 
-// OutlinePage returns the page of the document corresponding to an outline
-// (aka table of contents) entry.
-func (r *Reader) OutlinePage(o Outline) Page {
-	dests := r.Trailer().Key("Root").Key("Names").Key("Dests")
+// Page returns the page of the document corresponding to an outline (aka
+// table of contents) entry.
+func (o Outline) Page() Page {
+	root := o.dest.r.Trailer().Key("Root")
+	dests := root.Key("Names").Key("Dests")
 	if dests.IsNull() {
-		dests = r.Trailer().Key("Root").Key("Dests") // PDF 1.1
+		dests = root.Key("Dests") // PDF 1.1
 	}
 
 	if o.dest.Kind() == String {
