@@ -75,9 +75,15 @@ import (
 	"strconv"
 )
 
+// ReaderAtCloser combines the io.ReaderAt and io.Closer interfaces.
+type ReaderAtCloser interface {
+	io.ReaderAt
+	io.Closer
+}
+
 // A Reader is a single PDF file open for reading.
 type Reader struct {
-	f          io.ReaderAt
+	f          ReaderAtCloser
 	end        int64
 	xref       []xref
 	trailer    dict
@@ -113,7 +119,7 @@ func Open(file string) (*Reader, error) {
 }
 
 // NewReader opens a file for reading, using the data in f with the given total size.
-func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
+func NewReader(f ReaderAtCloser, size int64) (*Reader, error) {
 	return NewReaderEncrypted(f, size, nil)
 }
 
@@ -121,7 +127,7 @@ func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
 // If the PDF is encrypted, NewReaderEncrypted calls pw repeatedly to obtain passwords
 // to try. If pw returns the empty string, NewReaderEncrypted stops trying to decrypt
 // the file and returns an error.
-func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, error) {
+func NewReaderEncrypted(f ReaderAtCloser, size int64, pw func() string) (*Reader, error) {
 	buf := make([]byte, 10)
 	f.ReadAt(buf, 0)
 	if !bytes.HasPrefix(buf, []byte("%PDF-1.")) || buf[7] < '0' || buf[7] > '7' || buf[8] != '\r' && buf[8] != '\n' {
@@ -703,6 +709,11 @@ func (v Value) Len() int {
 		return 0
 	}
 	return len(x)
+}
+
+// Close closes the underlying ReaderAtCloser of the Reader.
+func (r *Reader) Close() error {
+	return r.f.Close()
 }
 
 func (r *Reader) resolve(parent objptr, x interface{}) Value {
