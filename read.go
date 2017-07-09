@@ -839,6 +839,11 @@ func applyFilter(rd io.Reader, name string, param Value) io.Reader {
 		case 12:
 			return &pngUpReader{r: zr, hist: make([]byte, 1+columns), tmp: make([]byte, 1+columns)}
 		}
+	case "DCTDecode":
+		// DCTDecode indicates that the Image XObject data is a full JPEG
+		// encoded image, so we return the original reader as is, and leave it
+		// up to the caller to decode the image.
+		return rd
 	}
 }
 
