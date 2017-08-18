@@ -153,7 +153,7 @@ func (f Font) Width(code int) float64 {
 }
 
 // Encoder returns the encoding between font code point sequences and UTF-8.
-func (f Font) Encoder() TextEncoding {
+func (f *Font) Encoder() TextEncoding {
 	if f.enc == nil { // caching the Encoder so we don't have to continually parse charmap
 		f.enc = f.getEncoder()
 	}
