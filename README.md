@@ -1,15 +1,17 @@
-# Purpose of the fork
+# PDF Reader
 
-This fork of rsc.io/pdf extends the package API with:
+A simple Go library which enables reading PDF files. Forked from https://github.com/rsc/pdf
 
-  - Implement the method GetPlainText() from object Page. Use to get plain text content (without format)
+Features
+  - Get plain text content (without format)
+  - Get Content (including all font and formatting information)
 
-## How to read all text from PDF:
+## Install:
 
-1. Get the library with command `go get -u github.com/ledongthuc/pdf`
+`go get -u github.com/ledongthuc/pdf`
 
 
-2. I write an example function to read file from PATH and return the content of PDF
+## Read plain text
 
 ```golang
 package main
@@ -35,21 +37,14 @@ func readPdf(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	totalPage := r.NumPage()
 
-	var textBuilder bytes.Buffer
-	for pageIndex := 1; pageIndex <= totalPage; pageIndex++ {
-		p := r.Page(pageIndex)
-		if p.V.IsNull() {
-			continue
-		}
-		textBuilder.WriteString(p.GetPlainText("\n"))
-	}
-	return textBuilder.String(), nil
+	var buf bytes.Buffer
+	buf.ReadFrom(p.GetPlainText())
+	return buf.String(), nil
 }
 ```
 
-## How to read all text with styles from PDF
+## Read all text with styles from PDF
 
 ```golang
 func readPdf2(path string) (string, error) {
