@@ -7,9 +7,10 @@
 package pdf
 
 import (
-	"fmt"
 	"io"
 	"strconv"
+
+	"github.com/pkg/errors"
 )
 
 // A token is a PDF token in the input stream, one of the following Go types:
@@ -78,11 +79,7 @@ func (b *buffer) readByte() byte {
 	return c
 }
 
-func (b *buffer) errorf(format string, args ...interface{}) {
-	panic(fmt.Errorf(format, args...))
-}
-
-func (b *buffer) reload() bool {
+func (b *buffer) reload() (bool, error) {
 	n := cap(b.buf) - int(b.offset%int64(cap(b.buf)))
 	n, err := b.r.Read(b.buf[:n])
 	if n == 0 && err != nil {
@@ -90,20 +87,19 @@ func (b *buffer) reload() bool {
 		b.pos = 0
 		if b.allowEOF && err == io.EOF {
 			b.eof = true
-			return false
+			return false, nil
 		}
-		b.errorf("malformed PDF: reading at offset %d: %v", b.offset, err)
-		return false
+		return false, errors.Errorf("malformed PDF: reading at offset %d: %v", b.offset, err)
 	}
 	b.offset += int64(n)
 	b.buf = b.buf[:n]
 	b.pos = 0
-	return true
+	return true, nil
 }
 
 func (b *buffer) seekForward(offset int64) {
 	for b.offset < offset {
-		if !b.reload() {
+		if ok, _ := b.reload(); !ok {
 			return
 		}
 	}
@@ -174,8 +170,7 @@ func (b *buffer) readToken() token {
 
 	default:
 		if isDelim(c) {
-			b.errorf("unexpected delimiter %#q", rune(c))
-			return nil
+			return errors.Errorf("unexpected delimiter %#q", rune(c))
 		}
 		b.unreadByte()
 		return b.readKeyword()
@@ -200,8 +195,7 @@ func (b *buffer) readHexString() token {
 		}
 		x := unhex(c)<<4 | unhex(c2)
 		if x < 0 {
-			b.errorf("malformed hex string %c %c %s", c, c2, b.buf[b.pos:])
-			break
+			return errors.Errorf("malformed hex string %c %c %s", c, c2, b.buf[b.pos:])
 		}
 		tmp = append(tmp, byte(x))
 	}
@@ -241,8 +235,7 @@ Loop:
 		case '\\':
 			switch c = b.readByte(); c {
 			default:
-				b.errorf("invalid escape sequence \\%c", c)
-				tmp = append(tmp, '\\', c)
+				return errors.Errorf("invalid escape sequence \\%c", c)
 			case 'n':
 				tmp = append(tmp, '\n')
 			case 'r':
@@ -273,7 +266,7 @@ Loop:
 					x = x*8 + int(c-'0')
 				}
 				if x > 255 {
-					b.errorf("invalid octal escape \\%03o", x)
+					return errors.Errorf("invalid octal escape \\%03o", x)
 				}
 				tmp = append(tmp, byte(x))
 			}
@@ -294,7 +287,7 @@ func (b *buffer) readName() token {
 		if c == '#' {
 			x := unhex(b.readByte())<<4 | unhex(b.readByte())
 			if x < 0 {
-				b.errorf("malformed name")
+				return errors.Errorf("malformed name")
 			}
 			tmp = append(tmp, byte(x))
 			continue
@@ -325,13 +318,13 @@ func (b *buffer) readKeyword() token {
 	case isInteger(s):
 		x, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			b.errorf("invalid integer %s", s)
+			return errors.Errorf("invalid integer %s", s)
 		}
 		return x
 	case isReal(s):
 		x, err := strconv.ParseFloat(s, 64)
 		if err != nil {
-			b.errorf("invalid real %s", s)
+			return errors.Errorf("invalid real %s", s)
 		}
 		return x
 	}
@@ -420,12 +413,15 @@ func (b *buffer) readObject() object {
 		case "[":
 			return b.readArray()
 		}
-		b.errorf("unexpected keyword %q parsing object", kw)
-		return nil
+		return errors.Errorf("unexpected keyword %q parsing object", kw)
 	}
 
 	if str, ok := tok.(string); ok && b.key != nil && b.objptr.id != 0 {
-		tok = decryptString(b.key, b.useAES, b.objptr, str)
+		var err error
+		tok, err = decryptString(b.key, b.useAES, b.objptr, str)
+		if err != nil {
+			return err
+		}
 	}
 
 	if !b.allowObjptr {
@@ -446,8 +442,7 @@ func (b *buffer) readObject() object {
 				if _, ok := obj.(stream); !ok {
 					tok4 := b.readToken()
 					if tok4 != keyword("endobj") {
-						b.errorf("missing endobj after indirect object definition")
-						b.unreadToken(tok4)
+						return errors.Errorf("missing endobj after indirect object definition")
 					}
 				}
 				b.objptr = old
@@ -482,8 +477,7 @@ func (b *buffer) readDict() object {
 		}
 		n, ok := tok.(name)
 		if !ok {
-			b.errorf("unexpected non-name key %T(%v) parsing dictionary", tok, tok)
-			continue
+			return errors.Errorf("unexpected non-name key %T(%v) parsing dictionary", tok, tok)
 		}
 		x[n] = b.readObject()
 	}
@@ -506,7 +500,7 @@ func (b *buffer) readDict() object {
 	case '\n':
 		// ok
 	default:
-		b.errorf("stream keyword not followed by newline")
+		return errors.Errorf("stream keyword not followed by newline")
 	}
 
 	return stream{x, b.objptr, b.readOffset()}

@@ -73,6 +73,8 @@ import (
 	"os"
 	"sort"
 	"strconv"
+
+	"github.com/pkg/errors"
 )
 
 // A Reader is a single PDF file open for reading.
@@ -91,10 +93,6 @@ type xref struct {
 	inStream bool
 	stream   objptr
 	offset   int64
-}
-
-func (r *Reader) errorf(format string, args ...interface{}) {
-	panic(fmt.Errorf(format, args...))
 }
 
 // Open opens a file for reading.
@@ -188,7 +186,7 @@ func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, e
 
 // Trailer returns the file's Trailer value.
 func (r *Reader) Trailer() Value {
-	return Value{r, r.trailerptr, r.trailer}
+	return Value{r: r, ptr: r.trailerptr, data: r.trailer}
 }
 
 func readXref(r *Reader, b *buffer) ([]xref, objptr, dict, error) {
@@ -244,7 +242,7 @@ func readXrefStream(r *Reader, b *buffer) ([]xref, objptr, dict, error) {
 			return nil, objptr{}, nil, fmt.Errorf("malformed PDF: xref prev stream not found: %v", objfmt(obj))
 		}
 		prevoff = prevstrm.hdr["Prev"]
-		prev := Value{r, objptr{}, prevstrm}
+		prev := Value{r: r, ptr: objptr{}, data: prevstrm}
 		if prev.Kind() != Stream {
 			return nil, objptr{}, nil, fmt.Errorf("malformed PDF: xref prev stream is not stream: %v", prev)
 		}
@@ -288,7 +286,7 @@ func readXrefStreamData(r *Reader, strm stream, table []xref, size int64) ([]xre
 		return nil, fmt.Errorf("invalid W array %v", objfmt(ww))
 	}
 
-	v := Value{r, objptr{}, strm}
+	v := Value{r: r, ptr: objptr{}, data: strm}
 	wtotal := 0
 	for _, wid := range w {
 		wtotal += wid
@@ -444,11 +442,17 @@ type Value struct {
 	r    *Reader
 	ptr  objptr
 	data interface{}
+	err  error
 }
 
 // IsNull reports whether the value is a null. It is equivalent to Kind() == Null.
 func (v Value) IsNull() bool {
 	return v.data == nil
+}
+
+// IsError reports whether the value is an error. It is equivalent to v.err != nil
+func (v Value) IsError() bool {
+	return v.err != nil
 }
 
 // A ValueKind specifies the kind of data underlying a Value.
@@ -653,6 +657,9 @@ func (v Value) Name() string {
 // If v is a stream, Key applies to the stream's header dictionary.
 // If v.Kind() != Dict and v.Kind() != Stream, Key returns a null Value.
 func (v Value) Key(key string) Value {
+	if v.IsError() {
+		return v
+	}
 	x, ok := v.data.(dict)
 	if !ok {
 		strm, ok := v.data.(stream)
@@ -688,6 +695,9 @@ func (v Value) Keys() []string {
 // If v.Kind() != Array or if i is outside the array bounds,
 // Index returns a null Value.
 func (v Value) Index(i int) Value {
+	if v.IsError() {
+		return v
+	}
 	x, ok := v.data.(array)
 	if !ok || i < 0 || i >= len(x) {
 		return Value{}
@@ -720,15 +730,15 @@ func (r *Reader) resolve(parent objptr, x interface{}) Value {
 		Search:
 			for {
 				if strm.Kind() != Stream {
-					panic("not a stream")
+					return Value{err: errors.New("not a stream")}
 				}
 				if strm.Key("Type").Name() != "ObjStm" {
-					panic("not an object stream")
+					return Value{err: errors.New("not an object stream")}
 				}
 				n := int(strm.Key("N").Int64())
 				first := strm.Key("First").Int64()
 				if first == 0 {
-					panic("missing First")
+					return Value{err: errors.New("missing First")}
 				}
 				b := newBuffer(strm.Reader(), 0)
 				b.allowEOF = true
@@ -743,7 +753,7 @@ func (r *Reader) resolve(parent objptr, x interface{}) Value {
 				}
 				ext := strm.Key("Extends")
 				if ext.Kind() != Stream {
-					panic("cannot find object in stream")
+					return Value{err: errors.New("cannot find object in stream")}
 				}
 				strm = ext
 			}
@@ -754,11 +764,10 @@ func (r *Reader) resolve(parent objptr, x interface{}) Value {
 			obj = b.readObject()
 			def, ok := obj.(objdef)
 			if !ok {
-				panic(fmt.Errorf("loading %v: found %T instead of objdef", ptr, obj))
-				return Value{}
+				return Value{err: fmt.Errorf("loading %v: found %T instead of objdef", ptr, obj)}
 			}
 			if def.ptr != ptr {
-				panic(fmt.Errorf("loading %v: found %v", ptr, def.ptr))
+				return Value{err: fmt.Errorf("loading %v: found %v", ptr, def.ptr)}
 			}
 			x = def.obj
 		}
@@ -767,11 +776,11 @@ func (r *Reader) resolve(parent objptr, x interface{}) Value {
 
 	switch x := x.(type) {
 	case nil, bool, int64, float64, name, dict, array, stream:
-		return Value{r, parent, x}
+		return Value{r: r, ptr: parent, data: x}
 	case string:
-		return Value{r, parent, x}
+		return Value{r: r, ptr: parent, data: x}
 	default:
-		panic(fmt.Errorf("unexpected value type %T in resolve", x))
+		return Value{err: fmt.Errorf("unexpected value type %T in resolve", x)}
 	}
 }
 
@@ -791,6 +800,9 @@ func (e *errorReadCloser) Close() error {
 // If v.Kind() != Stream, Reader returns a ReadCloser that
 // responds to all reads with a ``stream not present'' error.
 func (v Value) Reader() io.ReadCloser {
+	if v.IsError() {
+		return &errorReadCloser{errors.Wrap(v.err, "stream not present")}
+	}
 	x, ok := v.data.(stream)
 	if !ok {
 		return &errorReadCloser{fmt.Errorf("stream not present")}
@@ -804,7 +816,7 @@ func (v Value) Reader() io.ReadCloser {
 	param := v.Key("DecodeParms")
 	switch filter.Kind() {
 	default:
-		panic(fmt.Errorf("unsupported filter %v", filter))
+		return &errorReadCloser{fmt.Errorf("unsupported filter %v", filter)}
 	case Null:
 		// ok
 	case Name:
@@ -821,11 +833,11 @@ func (v Value) Reader() io.ReadCloser {
 func applyFilter(rd io.Reader, name string, param Value) io.Reader {
 	switch name {
 	default:
-		panic("unknown filter " + name)
+		return &errorReadCloser{errors.New("unknown filter " + name)}
 	case "FlateDecode":
 		zr, err := zlib.NewReader(rd)
 		if err != nil {
-			panic(err)
+			return &errorReadCloser{err}
 		}
 		pred := param.Key("Predictor")
 		if pred.Kind() == Null {
@@ -834,8 +846,7 @@ func applyFilter(rd io.Reader, name string, param Value) io.Reader {
 		columns := param.Key("Columns").Int64()
 		switch pred.Int64() {
 		default:
-			fmt.Println("unknown predictor", pred)
-			panic("pred")
+			return &errorReadCloser{errors.Errorf("unknown predictor %v", pred)}
 		case 12:
 			return &pngUpReader{r: zr, hist: make([]byte, 1+columns), tmp: make([]byte, 1+columns)}
 		}
@@ -1026,17 +1037,16 @@ func cryptKey(key []byte, useAES bool, ptr objptr) []byte {
 	return h.Sum(nil)
 }
 
-func decryptString(key []byte, useAES bool, ptr objptr, x string) string {
+func decryptString(key []byte, useAES bool, ptr objptr, x string) (string, error) {
 	key = cryptKey(key, useAES, ptr)
 	if useAES {
-		panic("AES not implemented")
-	} else {
-		c, _ := rc4.NewCipher(key)
-		data := []byte(x)
-		c.XORKeyStream(data, data)
-		x = string(data)
+		return "", errors.New("AES not implemented")
 	}
-	return x
+
+	c, _ := rc4.NewCipher(key)
+	data := []byte(x)
+	c.XORKeyStream(data, data)
+	return string(data), nil
 }
 
 func decryptStream(key []byte, useAES bool, ptr objptr, rd io.Reader) io.Reader {
@@ -1044,7 +1054,7 @@ func decryptStream(key []byte, useAES bool, ptr objptr, rd io.Reader) io.Reader 
 	if useAES {
 		cb, err := aes.NewCipher(key)
 		if err != nil {
-			panic("AES: " + err.Error())
+			return &errorReadCloser{errors.New("AES: " + err.Error())}
 		}
 		iv := make([]byte, 16)
 		io.ReadFull(rd, iv)
@@ -1052,7 +1062,7 @@ func decryptStream(key []byte, useAES bool, ptr objptr, rd io.Reader) io.Reader 
 		rd = &cbcReader{cbc: cbc, rd: rd, buf: make([]byte, 16)}
 	} else {
 		c, _ := rc4.NewCipher(key)
-		rd = &cipher.StreamReader{c, rd}
+		rd = &cipher.StreamReader{S: c, R: rd}
 	}
 	return rd
 }
