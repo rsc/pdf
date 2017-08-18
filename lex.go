@@ -67,16 +67,18 @@ func (b *buffer) seek(offset int64) {
 	b.unread = b.unread[:0]
 }
 
-func (b *buffer) readByte() byte {
+func (b *buffer) readByte() (byte, error) {
 	if b.pos >= len(b.buf) {
-		b.reload()
+		if _, err := b.reload(); err != nil {
+			return '\x00', err
+		}
 		if b.pos >= len(b.buf) {
-			return '\n'
+			return '\n', nil
 		}
 	}
 	c := b.buf[b.pos]
 	b.pos++
-	return c
+	return c, nil
 }
 
 func (b *buffer) reload() (bool, error) {
@@ -128,16 +130,19 @@ func (b *buffer) readToken() token {
 	}
 
 	// Find first non-space, non-comment byte.
-	c := b.readByte()
+	c, err := b.readByte()
 	for {
+		if err != nil {
+			return err
+		}
 		if isSpace(c) {
 			if b.eof {
 				return io.EOF
 			}
-			c = b.readByte()
+			c, err = b.readByte()
 		} else if c == '%' {
 			for c != '\r' && c != '\n' {
-				c = b.readByte()
+				c, err = b.readByte()
 			}
 		} else {
 			break
@@ -146,7 +151,7 @@ func (b *buffer) readToken() token {
 
 	switch c {
 	case '<':
-		if b.readByte() == '<' {
+		if b, _ := b.readByte(); b == '<' {
 			return keyword("<<")
 		}
 		b.unreadByte()
@@ -162,7 +167,7 @@ func (b *buffer) readToken() token {
 		return b.readName()
 
 	case '>':
-		if b.readByte() == '>' {
+		if b, _ := b.readByte(); b == '>' {
 			return keyword(">>")
 		}
 		b.unreadByte()
@@ -181,7 +186,10 @@ func (b *buffer) readHexString() token {
 	tmp := b.tmp[:0]
 	for {
 	Loop:
-		c := b.readByte()
+		c, err := b.readByte()
+		if err != nil {
+			return err
+		}
 		if c == '>' {
 			break
 		}
@@ -189,7 +197,10 @@ func (b *buffer) readHexString() token {
 			goto Loop
 		}
 	Loop2:
-		c2 := b.readByte()
+		c2, err := b.readByte()
+		if err != nil {
+			return err
+		}
 		if isSpace(c2) {
 			goto Loop2
 		}
@@ -220,7 +231,10 @@ func (b *buffer) readLiteralString() token {
 	depth := 1
 Loop:
 	for {
-		c := b.readByte()
+		c, err := b.readByte()
+		if err != nil {
+			return err
+		}
 		switch c {
 		default:
 			tmp = append(tmp, c)
@@ -233,7 +247,10 @@ Loop:
 			}
 			tmp = append(tmp, c)
 		case '\\':
-			switch c = b.readByte(); c {
+			if c, err = b.readByte(); err != nil {
+				return err
+			}
+			switch c {
 			default:
 				return errors.Errorf("invalid escape sequence \\%c", c)
 			case 'n':
@@ -249,7 +266,7 @@ Loop:
 			case '(', ')', '\\':
 				tmp = append(tmp, c)
 			case '\r':
-				if b.readByte() != '\n' {
+				if c, _ := b.readByte(); c != '\n' {
 					b.unreadByte()
 				}
 				fallthrough
@@ -258,7 +275,10 @@ Loop:
 			case '0', '1', '2', '3', '4', '5', '6', '7':
 				x := int(c - '0')
 				for i := 0; i < 2; i++ {
-					c = b.readByte()
+					c, err = b.readByte()
+					if err != nil {
+						return err
+					}
 					if c < '0' || c > '7' {
 						b.unreadByte()
 						break
@@ -279,13 +299,24 @@ Loop:
 func (b *buffer) readName() token {
 	tmp := b.tmp[:0]
 	for {
-		c := b.readByte()
+		c, err := b.readByte()
+		if err != nil {
+			return err
+		}
 		if isDelim(c) || isSpace(c) {
 			b.unreadByte()
 			break
 		}
 		if c == '#' {
-			x := unhex(b.readByte())<<4 | unhex(b.readByte())
+			hi, err := b.readByte()
+			if err != nil {
+				return err
+			}
+			lo, err := b.readByte()
+			if err != nil {
+				return err
+			}
+			x := unhex(hi)<<4 | unhex(lo)
 			if x < 0 {
 				return errors.Errorf("malformed name")
 			}
@@ -301,7 +332,10 @@ func (b *buffer) readName() token {
 func (b *buffer) readKeyword() token {
 	tmp := b.tmp[:0]
 	for {
-		c := b.readByte()
+		c, err := b.readByte()
+		if err != nil {
+			return err
+		}
 		if isDelim(c) || isSpace(c) {
 			b.unreadByte()
 			break
@@ -492,9 +526,13 @@ func (b *buffer) readDict() object {
 		return x
 	}
 
-	switch b.readByte() {
+	c, err := b.readByte()
+	if err != nil {
+		return err
+	}
+	switch c {
 	case '\r':
-		if b.readByte() != '\n' {
+		if x, _ := b.readByte(); x != '\n' {
 			b.unreadByte()
 		}
 	case '\n':
