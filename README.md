@@ -1,6 +1,6 @@
 # PDF Reader
 
-A simple Go library which enables reading PDF files. Forked from https://github.com/rsc/pdf
+A simple Go library which enables reading PDF files.
 
 Features
   - Get plain text content (without format)
@@ -8,7 +8,7 @@ Features
 
 ## Install:
 
-`go get -u github.com/ledongthuc/pdf`
+`go get -u github.com/rsc/pdf`
 
 
 ## Read plain text
@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/ledongthuc/pdf"
+	"github.com/rsc/pdf"
 )
 
 func main() {
