@@ -39,7 +39,7 @@ func readPdf(path string) (string, error) {
 	}
 
 	var buf bytes.Buffer
-	buf.ReadFrom(p.GetPlainText())
+	buf.ReadFrom(r.GetPlainText())
 	return buf.String(), nil
 }
 ```
