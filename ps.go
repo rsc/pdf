@@ -7,6 +7,8 @@ package pdf
 import (
 	"fmt"
 	"io"
+
+	"github.com/pkg/errors"
 )
 
 // A Stack represents a stack of values.
@@ -34,7 +36,7 @@ func (stk *Stack) Pop() Value {
 }
 
 func newDict() Value {
-	return Value{nil, objptr{}, make(dict)}
+	return Value{r: nil, ptr: objptr{}, data: make(dict)}
 }
 
 // Interpret interprets the content in a stream as a basic PostScript program,
@@ -51,7 +53,7 @@ func newDict() Value {
 //
 // There is no support for executable blocks, among other limitations.
 //
-func Interpret(strm Value, do func(stk *Stack, op string)) {
+func Interpret(strm Value, do func(stk *Stack, op string) error) error {
 	rd := strm.Reader()
 	b := newBuffer(rd, 0)
 	b.allowEOF = true
@@ -65,6 +67,9 @@ Reading:
 		if tok == io.EOF {
 			break
 		}
+		if err, ok := tok.(error); ok {
+			return err
+		}
 		if kw, ok := tok.(keyword); ok {
 			switch kw {
 			case "null", "[", "]", "<<", ">>":
@@ -72,43 +77,46 @@ Reading:
 			default:
 				for i := len(dicts) - 1; i >= 0; i-- {
 					if v, ok := dicts[i][name(kw)]; ok {
-						stk.Push(Value{nil, objptr{}, v})
+						stk.Push(Value{r: nil, ptr: objptr{}, data: v})
 						continue Reading
 					}
 				}
-				do(&stk, string(kw))
+				err := do(&stk, string(kw))
+				if err != nil {
+					return err
+				}
 				continue
 			case "dict":
 				stk.Pop()
-				stk.Push(Value{nil, objptr{}, make(dict)})
+				stk.Push(Value{r: nil, ptr: objptr{}, data: make(dict)})
 				continue
 			case "currentdict":
 				if len(dicts) == 0 {
-					panic("no current dictionary")
+					return errors.New("no current dictionary")
 				}
-				stk.Push(Value{nil, objptr{}, dicts[len(dicts)-1]})
+				stk.Push(Value{r: nil, ptr: objptr{}, data: dicts[len(dicts)-1]})
 				continue
 			case "begin":
 				d := stk.Pop()
 				if d.Kind() != Dict {
-					panic("cannot begin non-dict")
+					return errors.New("cannot begin non-dict")
 				}
 				dicts = append(dicts, d.data.(dict))
 				continue
 			case "end":
 				if len(dicts) <= 0 {
-					panic("mismatched begin/end")
+					return errors.New("mismatched begin/end")
 				}
 				dicts = dicts[:len(dicts)-1]
 				continue
 			case "def":
 				if len(dicts) <= 0 {
-					panic("def without open dict")
+					return errors.New("def without open dict")
 				}
 				val := stk.Pop()
 				key, ok := stk.Pop().data.(name)
 				if !ok {
-					panic("def of non-name")
+					return errors.New("def of non-name")
 				}
 				dicts[len(dicts)-1][key] = val.data
 				continue
@@ -119,8 +127,9 @@ Reading:
 		}
 		b.unreadToken(tok)
 		obj := b.readObject()
-		stk.Push(Value{nil, objptr{}, obj})
+		stk.Push(Value{r: nil, ptr: objptr{}, data: obj})
 	}
+	return nil
 }
 
 type seqReader struct {
