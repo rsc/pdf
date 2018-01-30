@@ -62,7 +62,7 @@ func (r *Reader) GetPlainText() io.Reader {
 	pages := r.NumPage()
 	var buf bytes.Buffer
 	fonts := make(map[string]*Font)
-	for i := 1; i < pages; i++ {
+	for i := 1; i <= pages; i++ {
 		p := r.Page(i)
 		for _, name := range p.Fonts() { // cache fonts so we don't continually parse charmap
 			if _, ok := fonts[name]; !ok {
