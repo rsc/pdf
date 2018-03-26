@@ -6,6 +6,7 @@ package pdf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -58,7 +59,7 @@ func (r *Reader) NumPage() int {
 }
 
 // GetPlainText returns all the text in the PDF file
-func (r *Reader) GetPlainText() io.Reader {
+func (r *Reader) GetPlainText() (reader io.Reader, err error) {
 	pages := r.NumPage()
 	var buf bytes.Buffer
 	fonts := make(map[string]*Font)
@@ -70,9 +71,13 @@ func (r *Reader) GetPlainText() io.Reader {
 				fonts[name] = &f
 			}
 		}
-		buf.WriteString(p.GetPlainText(fonts))
+		text, err := p.GetPlainText(fonts)
+		if err != nil {
+			return &bytes.Buffer{}, err
+		}
+		buf.WriteString(text)
 	}
-	return &buf
+	return &buf, nil
 }
 
 func (p Page) findInherited(key string) Value {
@@ -456,7 +461,14 @@ type gstate struct {
 
 // GetPlainText returns the page's all text without format.
 // fonts can be passed in (to improve parsing performance) or left nil
-func (p Page) GetPlainText(fonts map[string]*Font) string {
+func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = ""
+			err = errors.New(fmt.Sprint(r))
+		}
+	}()
+
 	strm := p.V.Key("Contents")
 	var enc TextEncoding = &nopEncoder{}
 
@@ -524,7 +536,7 @@ func (p Page) GetPlainText(fonts map[string]*Font) string {
 			}
 		}
 	})
-	return textBuilder.String()
+	return textBuilder.String(), nil
 }
 
 // Content returns the page's content.
