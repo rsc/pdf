@@ -404,7 +404,23 @@ type gstate struct {
 
 // Content returns the page's content.
 func (p Page) Content() Content {
-	strm := p.V.Key("Contents")
+	switch v := p.V.Key("Contents"); v.Kind() {
+	case Stream:
+		return p.contentForStream(v)
+	case Array:
+		var c Content
+		for i := 0; i < v.Len(); i++ {
+			cfs := p.contentForStream(v.Index(i))
+			c.Text = append(c.Text, cfs.Text...)
+			c.Rect = append(c.Rect, cfs.Rect...)
+		}
+		return c
+	default:
+		panic("bad content kind")
+	}
+}
+
+func (p Page) contentForStream(strm Value) Content {
 	var enc TextEncoding = &nopEncoder{}
 
 	var g = gstate{
@@ -485,9 +501,12 @@ func (p Page) Content() Content {
 			gstack = append(gstack, g)
 
 		case "Q": // restore graphics state
-			n := len(gstack) - 1
-			g = gstack[n]
-			gstack = gstack[:n]
+			// gstack should not be empty...but sometimes it is
+			if len(gstack) > 0 {
+				n := len(gstack) - 1
+				g = gstack[n]
+				gstack = gstack[:n]
+			}
 
 		case "BT": // begin text (reset text matrix and line matrix)
 			g.Tm = ident
