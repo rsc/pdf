@@ -67,6 +67,7 @@ import (
 	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rc4"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -124,9 +125,11 @@ func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
 func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, error) {
 	buf := make([]byte, 10)
 	f.ReadAt(buf, 0)
-	if !bytes.HasPrefix(buf, []byte("%PDF-1.")) || buf[7] < '0' || buf[7] > '7' || buf[8] != '\r' && buf[8] != '\n' {
+
+	if !bytes.HasPrefix(buf, []byte("%PDF-1.")) {
 		return nil, fmt.Errorf("not a PDF file: invalid header")
 	}
+
 	end := size
 	const endChunk = 100
 	buf = make([]byte, endChunk)
@@ -822,6 +825,10 @@ func applyFilter(rd io.Reader, name string, param Value) io.Reader {
 	switch name {
 	default:
 		panic("unknown filter " + name)
+
+	case "CCITTFaxDecode":
+		return faxReader(rd, param)
+
 	case "FlateDecode":
 		zr, err := zlib.NewReader(rd)
 		if err != nil {
@@ -1076,4 +1083,76 @@ func (r *cbcReader) Read(b []byte) (n int, err error) {
 	n = copy(b, r.pend)
 	r.pend = r.pend[n:]
 	return n, nil
+}
+
+const tiffTagCount = 8
+
+type tiffTag struct {
+	FieldTag    uint16
+	FieldType   uint16
+	FieldLength uint32
+	DataOffset  uint32
+}
+
+type tiffHeader struct {
+	ByteOrder    [2]byte // II == Intel byte order
+	Version      uint16  // always 42
+	ImgDirOffset uint32
+	TagCount     uint16
+	Tags         [tiffTagCount]tiffTag
+	TagTerm      uint32
+}
+
+// faxReader wraps a bare-bones tiff header around CCITT fax data
+// this does not support two dimensional encoded faxes (K>1)
+// or anything that requires actually decoding the data
+// (EndOfLine, EncodedByteAlign, EndOfBlock, DamagedRowsBeforeError parameters)
+// or a missing row count.
+func faxReader(rd io.Reader, param Value) io.Reader {
+	k := param.Key("K").Int64()
+	rows := param.Key("Rows").Int64()
+	cols := param.Key("Columns").Int64()
+
+	if cols == 0 {
+		cols = 1728 // per spec
+	}
+
+	var comp uint32
+	switch {
+	case k < 0:
+		comp = 4 // CCITT Group 4
+	case k == 0:
+		comp = 3 // CCITT Group 3
+	default:
+		panic("unsupported encoding scheme")
+	}
+
+	if rows <= 0 || cols <= 0 {
+		panic("invalid row/column count for fax data")
+	}
+
+	// must know the actual amount of data
+	data, _ := ioutil.ReadAll(rd)
+	header := tiffHeader{
+		ByteOrder:    [...]byte{'I', 'I'},
+		Version:      42,
+		ImgDirOffset: 8,
+		TagCount:     tiffTagCount,
+		Tags: [...]tiffTag{
+			{256, 4, 1, uint32(cols)},                      // ImageWidth
+			{257, 4, 1, uint32(rows)},                      // ImageHeight
+			{258, 3, 1, 1},                                 // BitsPerSample
+			{259, 3, 1, uint32(comp)},                      // Compression,  3 == Group 3, 4 == Group 4
+			{262, 3, 1, 0},                                 // PhotometricInterpretation,  0 = WhiteIsZero
+			{273, 4, 1, uint32(binary.Size(tiffHeader{}))}, // StripOffsets
+			{278, 4, 1, uint32(rows)},                      // RowsPerStrip
+			{279, 4, 1, uint32(len(data))},                 // StripByteCounts, size of image
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := binary.Write(&buf, binary.LittleEndian, header); err != nil {
+		panic(fmt.Sprintf("binary write failed: %v", err))
+	}
+	return io.MultiReader(&buf, bytes.NewReader(data))
 }
