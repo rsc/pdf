@@ -896,6 +896,9 @@ func (r *Reader) initEncrypt(password string) error {
 	if V != 1 && V != 2 && (V != 4 || !okayV4(encrypt)) {
 		return fmt.Errorf("unsupported PDF: encryption version V=%d; %v", V, objfmt(encrypt))
 	}
+	if V == 4 && encrypt["StmF"].(name) == name("Identity") {
+		return nil // No encryption applied.
+	}
 
 	ids, ok := r.trailer["ID"].(array)
 	if !ok || len(ids) < 1 {
@@ -1002,6 +1005,9 @@ func okayV4(encrypt dict) bool {
 	}
 	if stmf != strf {
 		return false
+	}
+	if stmf == name("Identity") {
+		return true // No encryption applied.
 	}
 	cfparam, ok := cf[stmf].(dict)
 	if cfparam["AuthEvent"] != nil && cfparam["AuthEvent"] != name("DocOpen") {
