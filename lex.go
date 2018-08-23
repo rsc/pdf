@@ -404,6 +404,11 @@ type objptr struct {
 	gen uint16
 }
 
+// Equal returns true if two object references point to the same object.
+func (a objptr) Equal(b objptr) bool {
+	return a.id == b.id
+}
+
 type objdef struct {
 	ptr objptr
 	obj object

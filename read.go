@@ -73,6 +73,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // A Reader is a single PDF file open for reading.
@@ -662,6 +663,41 @@ func (v Value) Key(key string) Value {
 		x = strm.hdr
 	}
 	return v.r.resolve(v.ptr, x[name(key)])
+}
+
+// nameTreeLookup looks up a value from a name tree.  Name trees are similar
+// to dictionaries, so this is analogous to Key().  See 7.9.6 of the PDF seec.
+func (v Value) nameTreeLookup(key string) Value {
+NTSearch:
+	for {
+		limits := v.Key("Limits")
+		if !limits.IsNull() && (strings.Compare(key, limits.Index(0).String()) == -1 || strings.Compare(key, limits.Index(1).String()) == 1) {
+			break // key is outside stated limits
+		}
+
+		names := v.Key("Names")
+		if !names.IsNull() {
+			for i := 0; i < names.Len(); i += 2 {
+				if names.Index(i).String() == key {
+					return names.Index(i + 1)
+				}
+			}
+			break // name not found
+		}
+
+		kids := v.Key("Kids")
+		for i := 0; i < kids.Len(); i++ {
+			kid := kids.Index(i)
+			limits := kid.Key("Limits")
+			if !limits.IsNull() && strings.Compare(key, limits.Index(0).String()) >= 0 && strings.Compare(key, limits.Index(1).String()) <= 0 {
+				v = kid
+				continue NTSearch
+			}
+		}
+		break // key is not within any kid's limits
+	}
+
+	return Value{}
 }
 
 // Keys returns a sorted list of the keys in the dictionary v.

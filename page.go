@@ -51,6 +51,44 @@ Search:
 	return Page{}
 }
 
+func (p Page) findAdjacent(direction int) Page {
+	lookingFor := p.V.ptr
+	found := false
+	pages := p.V.Key("Parent")
+FindNext:
+	for pages.Key("Type").Name() == "Pages" {
+		var kid Value
+		kids := pages.Key("Kids")
+		for i := 0; i < kids.Len(); i++ {
+			if direction == 1 {
+				kid = kids.Index(i)
+			} else {
+				kid = kids.Index(kids.Len() - i - 1)
+			}
+			if found {
+				if kid.Key("Type").Name() == "Page" {
+					return Page{kid}
+				} else if kid.Key("Type").Name() == "Pages" {
+					pages = kid
+					continue FindNext
+				}
+			} else if kid.ptr.Equal(lookingFor) {
+				found = true
+			}
+		}
+		lookingFor = pages.ptr
+		found = false
+		pages = pages.Key("Parent")
+	}
+	return Page{}
+}
+
+// Next returns the next page in the document.
+func (p Page) Next() Page { return p.findAdjacent(1) }
+
+// Prev returns the previous page in the document.
+func (p Page) Prev() Page { return p.findAdjacent(-1) }
+
 // NumPage returns the number of pages in the PDF file.
 func (r *Reader) NumPage() int {
 	return int(r.Trailer().Key("Root").Key("Pages").Key("Count").Int64())
@@ -648,6 +686,7 @@ func (x TextHorizontal) Less(i, j int) bool {
 type Outline struct {
 	Title string    // title for this element
 	Child []Outline // child elements
+	dest  Value     // destination, which will need to be resolved
 }
 
 // Outline returns the document outline.
@@ -660,8 +699,27 @@ func (r *Reader) Outline() Outline {
 func buildOutline(entry Value) Outline {
 	var x Outline
 	x.Title = entry.Key("Title").Text()
+	x.dest = entry.Key("Dest")
 	for child := entry.Key("First"); child.Kind() == Dict; child = child.Key("Next") {
 		x.Child = append(x.Child, buildOutline(child))
 	}
 	return x
+}
+
+// Page returns the page of the document corresponding to an outline (aka
+// table of contents) entry.
+func (o Outline) Page() Page {
+	root := o.dest.r.Trailer().Key("Root")
+	dests := root.Key("Names").Key("Dests")
+	if dests.IsNull() {
+		dests = root.Key("Dests") // PDF 1.1
+	}
+
+	if o.dest.Kind() == String {
+		dest := dests.nameTreeLookup(o.dest.String()).Key("D").Index(0)
+		if dest.Key("Type").Name() == "Page" {
+			return Page{dest}
+		}
+	} // non-named destinations are not supported
+	return Page{}
 }
