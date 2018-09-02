@@ -788,15 +788,28 @@ func (e *errorReadCloser) Close() error {
 }
 
 // Reader returns the data contained in the stream v.
-// If v.Kind() != Stream, Reader returns a ReadCloser that
-// responds to all reads with a ``stream not present'' error.
+// If v.Kind() is not a stream or an array of streams,
+// Reader returns a ReadCloser that responds to all reads
+// with a ``stream not present'' error.
 func (v Value) Reader() io.ReadCloser {
 	x, ok := v.data.(stream)
 	if !ok {
+		if x, ok := v.data.(array); ok {
+			r := make([]io.Reader, len(x))
+			for i, s := range x {
+				r[i] = v.r.resolve(v.ptr, s).Reader()
+			}
+			return ioutil.NopCloser(io.MultiReader(r...))
+		}
 		return &errorReadCloser{fmt.Errorf("stream not present")}
 	}
 	var rd io.Reader
-	rd = io.NewSectionReader(v.r.f, x.offset, v.Key("Length").Int64())
+	l := v.Key("Length").Int64()
+	rd = io.NewSectionReader(v.r.f, x.offset, l)
+	if l == 0 {
+		// if Length is zero, skip filter processing
+		return ioutil.NopCloser(rd)
+	}
 	if v.r.key != nil {
 		rd = decryptStream(v.r.key, v.r.useAES, x.ptr, rd)
 	}
