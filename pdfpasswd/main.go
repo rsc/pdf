@@ -1,10 +1,10 @@
-// Copyright 2014 The Go Authors.  All rights reserved.
+// Copyright 2009 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 // Pdfpasswd searches for the password for an encrypted PDF
 // by trying all strings over a given alphabet up to a given length.
-package main // import "rsc.io/pdf/pdfpasswd"
+package main // import "github.com/yongjacky/pdf/pdfpasswd"
 
 import (
 	"flag"
@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"rsc.io/pdf"
+	"github.com/yongjacky/pdf"
 )
 
 var (
@@ -67,6 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	
 	_, err = pdf.NewReaderEncrypted(f, st.Size(), pw)
 	if err != nil {
 		if err == pdf.ErrInvalidPassword {

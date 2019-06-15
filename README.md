@@ -1,3 +1,2 @@
-go get rsc.io/pdf
+go get github.com/yongjacky/pdf
 
-http://godoc.org/rsc.io/pdf
