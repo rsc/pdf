@@ -132,6 +132,29 @@ func (f Font) Width(code int) float64 {
 	return f.V.Key("Widths").Index(code - first).Float64()
 }
 
+// HasCharSpecification returns whether the character specification is available.
+// In a well-formed PDF a Font has Widths, FirstChar and LastChar specified
+func (f Font) HasCharSpecification() bool {
+	mandatoryKeys := []string{"Widths", "FirstChar", "LastChar"}
+	keys := f.V.Keys()
+	if keys == nil {
+		return false
+	}
+	for _, mandatoryKey := range mandatoryKeys {
+		found := false
+		for _, key := range keys {
+			if key == mandatoryKey {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 // Encoder returns the encoding between font code point sequences and UTF-8.
 func (f Font) Encoder() TextEncoding {
 	enc := f.V.Key("Encoding")
@@ -417,21 +440,32 @@ func (p Page) Content() Content {
 		n := 0
 		for _, ch := range enc.Decode(s) {
 			Trm := matrix{{g.Tfs * g.Th, 0, 0}, {0, g.Tfs, 0}, {0, g.Trise, 1}}.mul(g.Tm).mul(g.CTM)
-			w0 := g.Tf.Width(int(s[n]))
-			n++
-			if ch != ' ' {
+			if g.Tf.HasCharSpecification() {
+				w0 := g.Tf.Width(int(s[n]))
+				n++
+				if ch != ' ' {
+					f := g.Tf.BaseFont()
+					if i := strings.Index(f, "+"); i >= 0 {
+						f = f[i+1:]
+					}
+					text = append(text, Text{f, Trm[0][0], Trm[2][0], Trm[2][1], w0 / 1000 * Trm[0][0], string(ch)})
+				}
+				tx := w0/1000*g.Tfs + g.Tc
+				if ch == ' ' {
+					tx += g.Tw
+				}
+				tx *= g.Th
+				g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(g.Tm)
+			} else {
+				// Handle malformed pdf
 				f := g.Tf.BaseFont()
 				if i := strings.Index(f, "+"); i >= 0 {
 					f = f[i+1:]
 				}
-				text = append(text, Text{f, Trm[0][0], Trm[2][0], Trm[2][1], w0 / 1000 * Trm[0][0], string(ch)})
+				// Include whitespaces
+				text = append(text, Text{f, Trm[0][0], Trm[2][0], Trm[2][1], 0, string(ch)})
+				g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}.mul(g.Tm)
 			}
-			tx := w0/1000*g.Tfs + g.Tc
-			if ch == ' ' {
-				tx += g.Tw
-			}
-			tx *= g.Th
-			g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(g.Tm)
 		}
 	}
 
