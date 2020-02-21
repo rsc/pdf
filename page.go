@@ -404,9 +404,32 @@ type gstate struct {
 
 // Content returns the page's content.
 func (p Page) Content() Content {
-	strm := p.V.Key("Contents")
-	var enc TextEncoding = &nopEncoder{}
+	obj := p.V.Key("Contents")
 
+	content := Content{}
+	if obj.Kind() == Stream {
+		content = interpretStream(p, obj)
+	} else if obj.Kind() == Array {
+
+		for i := 0; i < obj.Len(); i++ {
+			val := obj.Index(i)
+			if val.Kind() == Stream {
+				part := interpretStream(p, val)
+				content.Text = append(content.Text, part.Text...)
+				content.Rect = append(content.Rect, part.Rect...)
+			} else {
+				panic("If the key contents contains an array then each item must be of type stream")
+			}
+		}
+	} else {
+		panic("The key content supports either a stream or an array (of streams) as a type")
+	}
+	return content
+}
+
+func interpretStream(p Page, strm Value) Content {
+
+	var enc TextEncoding = &nopEncoder{}
 	var g = gstate{
 		Th:  1,
 		CTM: ident,
